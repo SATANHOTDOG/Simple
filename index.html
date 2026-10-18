@@ -102,7 +102,7 @@ h1 { font-size: 1.5rem; color: var(--primary-color); margin-bottom: 5px; }
         <!-- 步驟 1：上傳報表 -->
         <div class="wizard-box" style="background: #fdf2e9; border-color: #fae5d3;">
             <h4 style="color: #d35400;">Step 1. 餵入你們店的庫存報表</h4>
-            <p style="font-size: 0.8rem; color: #7f8c8d; margin-bottom: 10px;">請從系統匯出「320901-商品庫存資料查詢」Excel 檔並點擊下方上傳。(資料僅在您的手機/電腦運算，絕對安全)</p>
+            <p style="font-size: 0.8rem; color: #7f8c8d; margin-bottom: 10px;">請從系統匯出「320901-商品庫存資料查詢」Excel 檔並點擊下方上傳。(資料僅在您的裝置運算，絕對安全)</p>
             <div class="file-upload-wrapper">
                 <button class="btn-upload" id="uploadBtnText">📁 點擊上傳 .xls / .xlsx 庫存表</button>
                 <input type="file" id="inventoryFile" accept=".xls,.xlsx">
@@ -118,9 +118,9 @@ h1 { font-size: 1.5rem; color: var(--primary-color); margin-bottom: 5px; }
                 <label class="checkbox-container"><input type="checkbox" id="wizChkShow" checked> 包含展示品</label>
             </div>
 
-            <!-- 新增：近五日自動查證區塊 -->
+            <!-- 自動查證區塊 (前後5天) -->
             <div style="margin-bottom: 15px; border-bottom: 1px dashed #bdc3c7; padding-bottom: 15px;">
-                <button class="btn" style="width: 100%; background: #e67e22; color: white; margin-bottom: 10px;" onclick="scanLocal5Days()">📅 查證近五日是否有變價</button>
+                <button class="btn" style="width: 100%; background: #e67e22; color: white; margin-bottom: 10px;" onclick="scanLocal11Days()">📅 查證前後五日變價總覽</button>
                 <div id="wizard5DaysContainer" style="font-size: 0.9rem; display: none; margin-top: 10px;"></div>
             </div>
 
@@ -148,7 +148,7 @@ const GOOGLE_SHEET_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vT
 let products = [];
 let currentFiltered = [];
 let renderLimit = 100;
-let productsMap = {}; // 加速查找用
+let productsMap = {}; 
 
 // 外掛精靈專用變數
 let localInventory = {}; 
@@ -175,7 +175,6 @@ async function fetchProducts() {
         
         products = parseCSVOptimized(lines, headers);
         
-        // 建立快取字典給換檔精靈使用
         products.forEach(p => {
             const sku = getValFromObj(p, 'SKU');
             if (sku) productsMap[sku] = p;
@@ -290,7 +289,6 @@ document.getElementById('inventoryFile').addEventListener('change', function(e) 
             let headerRowIdx = -1;
             let skuCol = -1, stockCol = -1, showCol = -1;
 
-            // 尋找表頭 (容錯掃描前20行)
             for(let i=0; i < Math.min(20, json.length); i++) {
                 const row = json[i];
                 if(!row) continue;
@@ -341,8 +339,8 @@ document.getElementById('inventoryFile').addEventListener('change', function(e) 
     reader.readAsArrayBuffer(file);
 });
 
-// ======== 自動掃描近 5 日變價 ========
-function scanLocal5Days() {
+// ======== 自動掃描 前後11日變價 ========
+function scanLocal11Days() {
     if(Object.keys(localInventory).length === 0) {
         return alert('請先上傳你們店的庫存報表(Excel)！沒給庫存我怎麼算？');
     }
@@ -353,7 +351,7 @@ function scanLocal5Days() {
 
     const container = document.getElementById('wizard5DaysContainer');
     container.style.display = 'block';
-    container.innerHTML = '<div style="text-align:center; color:#e67e22; padding: 10px; font-weight: bold;">魔法陣啟動，掃描近 5 日變價中...</div>';
+    container.innerHTML = '<div style="text-align:center; color:#e67e22; padding: 10px; font-weight: bold;">魔法陣啟動，掃描前後各 5 日中...</div>';
 
     setTimeout(() => {
         const today = new Date();
@@ -362,8 +360,8 @@ function scanLocal5Days() {
         let foundAny = false;
         let html = '';
 
-        // 從 5 天前掃描到今天 (包含今天)
-        for(let i = -5; i <= 0; i++) {
+        // 過去5天 到 未來5天 (總共11天)
+        for(let i = -5; i <= 5; i++) {
             const tDate = new Date(today.getTime() + i * 24 * 60 * 60 * 1000);
             const pDate = new Date(tDate.getTime() - 24 * 60 * 60 * 1000);
 
@@ -393,9 +391,11 @@ function scanLocal5Days() {
             const month = String(tDate.getMonth()+1).padStart(2, '0');
             const day = String(tDate.getDate()).padStart(2, '0');
             const dateStr = `${tDate.getFullYear()}${month}${day}`;
+            
             let displayDate = `${month}/${day}`;
             if (i === 0) displayDate = "今天";
             if (i === -1) displayDate = "昨天";
+            if (i === 1) displayDate = "明天";
 
             if (dropList.length > 0) {
                 foundAny = true;
@@ -418,7 +418,7 @@ function scanLocal5Days() {
         }
 
         if (!foundAny) {
-            html = '<div style="text-align:center; color:#27ae60; font-weight:bold; padding: 10px;">🎉 近 5 天你們店內完全沒有變價商品！</div>';
+            html = '<div style="text-align:center; color:#27ae60; font-weight:bold; padding: 10px;">🎉 前後 5 天你們店內完全沒有變價商品！</div>';
         }
         container.innerHTML = html;
     }, 50);
