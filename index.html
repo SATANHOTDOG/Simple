@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>全台門市通用 商品圖鑑系統</title>
+<title>全台門市通用 商品圖鑑與換檔精靈</title>
 <style>
 :root {
 --primary-color: #2c3e50;
@@ -48,13 +48,27 @@ h1 { font-size: 1.5rem; color: var(--primary-color); margin-bottom: 5px; }
 .btn-secondary { background: #e2e8f0; color: #334155; }
 .btn-secondary:hover { background: #cbd5e1; }
 .loader { text-align: center; padding: 50px; font-size: 1.2rem; color: var(--text-muted); }
+
+/* 模態框與精靈樣式 */
+.modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.75); justify-content: center; align-items: center; z-index: 1000; }
+.modal-content { background: #fff; padding: 25px; border-radius: 16px; text-align: center; max-width: 400px; width: 90%; box-shadow: 0 10px 30px rgba(0,0,0,0.3); }
+.btn-wizard { background: linear-gradient(135deg, #8e44ad, #9b59b6); color: white; padding: 8px 15px; border-radius: 8px; font-size: 0.95rem; font-weight: bold; border: none; box-shadow: 0 2px 5px rgba(142,68,173,0.3); cursor: pointer; }
+.wizard-box { border: 1px solid #e9ecef; padding: 15px; border-radius: 8px; margin-bottom: 15px; background: #fff; text-align: left; }
+.doc-link { display: inline-block; background: #ebf5fb; color: #2980b9; padding: 8px 15px; border-radius: 20px; font-size: 0.9rem; font-weight: bold; text-decoration: none; margin-bottom: 15px; border: 1px solid #d6eaf8; }
+.doc-link:hover { background: #d6eaf8; }
+.file-upload-wrapper { position: relative; overflow: hidden; display: inline-block; width: 100%; margin-bottom: 10px; }
+.file-upload-wrapper input[type=file] { font-size: 100px; position: absolute; left: 0; top: 0; opacity: 0; cursor: pointer; }
+.btn-upload { background: #f39c12; color: white; padding: 12px; border-radius: 8px; font-weight: bold; width: 100%; border: none; display: flex; justify-content: center; align-items: center; gap: 8px; }
 </style>
+
+<!-- 引入 QR Code 與 神級 Excel 解析套件 SheetJS -->
 <script src="https://unpkg.com/html5-qrcode"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
 </head>
 <body>
 <header>
 <h1>家具商品大倉查貨圖鑑</h1>
-<div class="subtitle">全台門市通用 快速檢索工具 (Google Sheets 同步)</div>
+<div class="subtitle">全台門市通用 快速檢索工具</div>
 </header>
 <div class="search-container">
 <input type="text" id="searchInput" class="search-box" placeholder="輸入 SKU 貨號或商品名稱搜尋..." disabled>
@@ -62,6 +76,7 @@ h1 { font-size: 1.5rem; color: var(--primary-color); margin-bottom: 5px; }
     <div class="checkbox-group">
         <label class="checkbox-container"><input type="checkbox" id="stockFilter">⚡ 楊梅有現貨</label>
     </div>
+    <button class="btn-wizard" onclick="openWizard()">🗓️ 各店換檔精靈 (外掛版)</button>
 </div>
 <button id="cameraBtn" class="btn btn-secondary" style="width: 100%; margin-top: 15px; margin-bottom: 5px; font-weight: bold; background: #2980b9; color: white; padding: 12px;">📸 喚醒原生相機拍照掃描</button>
 <input type="file" id="qrInput" accept="image/*" capture="environment" style="display: none;">
@@ -75,11 +90,60 @@ h1 { font-size: 1.5rem; color: var(--primary-color); margin-bottom: 5px; }
 <div id="loader" class="loader">正在極速讀取試算表資料...</div>
 <div id="gridContainer" class="grid-container"></div>
 
+<!-- 外掛版：換檔精靈 Modal -->
+<div id="wizardModal" class="modal" onclick="document.getElementById('wizardModal').style.display='none'">
+    <div class="modal-content" onclick="event.stopPropagation()" style="max-height: 90vh; overflow-y: auto;">
+        <h3 style="color: #8e44ad; margin-bottom: 10px; font-size: 1.4rem;">🗓️ 換檔 POP 精靈 (各店版)</h3>
+        
+        <!-- 說明文件連結 -->
+        <a href="https://docs.google.com/document/d/1tIPupWBInyjxizTGX0elRF8I0MfI8pES9sRyOC4f44I/edit?usp=sharing" target="_blank" class="doc-link">📖 換檔精靈使用方式 (必看)</a>
+        
+        <!-- 步驟 1：上傳報表 -->
+        <div class="wizard-box" style="background: #fdf2e9; border-color: #fae5d3;">
+            <h4 style="color: #d35400;">Step 1. 餵入你們店的庫存報表</h4>
+            <p style="font-size: 0.8rem; color: #7f8c8d; margin-bottom: 10px;">請從系統匯出「320901-商品庫存資料查詢」Excel 檔並點擊下方上傳。(資料僅在您的手機/電腦運算，絕對安全)</p>
+            <div class="file-upload-wrapper">
+                <button class="btn-upload" id="uploadBtnText">📁 點擊上傳 .xls / .xlsx 庫存表</button>
+                <input type="file" id="inventoryFile" accept=".xls,.xlsx">
+            </div>
+            <div id="uploadStatus" style="font-size: 0.85rem; color: #27ae60; font-weight: bold; display: none;">✅ 報表已讀取完畢！</div>
+        </div>
+
+        <!-- 步驟 2：篩選條件 -->
+        <div class="wizard-box">
+            <h4 style="color: #2980b9;">Step 2. 設定印牌與日期條件</h4>
+            <div style="display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 15px;">
+                <label class="checkbox-container"><input type="checkbox" id="wizChkStock" checked> 包含庫存量 (一般)</label>
+                <label class="checkbox-container"><input type="checkbox" id="wizChkShow" checked> 包含展示品</label>
+            </div>
+            <input type="date" id="wizardDate" style="width: 100%; padding: 10px; margin-bottom: 10px; border: 1px solid #bdc3c7; border-radius: 6px; font-family: inherit;">
+            <button class="btn" style="width: 100%; background: #2c3e50; color: white;" onclick="runLocalWizard()">🔍 執行比對，找出換檔清單</button>
+            
+            <div id="wizardSpecificResult" style="display: none; margin-top: 15px; border-top: 1px dashed #bdc3c7; padding-top: 15px;">
+                <button class="btn" style="width: 100%; background: #e74c3c; color: white; margin-bottom: 8px;" id="btnDropSpec" onclick="exportSpecific('drop')">📥 匯出【進入特價】 (0)</button>
+                <button class="btn" style="width: 100%; background: #27ae60; color: white;" id="btnRiseSpec" onclick="exportSpecific('rise')">📥 匯出【恢復原價】 (0)</button>
+                <p style="font-size: 0.75rem; color: #95a5a6; margin-top: 8px;">匯出為 Excel，雙擊若跳格式警告請按「是」。</p>
+            </div>
+        </div>
+
+        <button class="btn btn-secondary" style="width: 100%;" onclick="document.getElementById('wizardModal').style.display='none'">關閉視窗</button>
+    </div>
+</div>
+
 <script>
 const GOOGLE_SHEET_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTC18jsseZH3TerLqZMzzkJc1uPjh2IVTktcs4DxiuEmpA_NRAnzKrgzZbV43FQtN8b7-vMlvv1BFGF/pub?gid=0&single=true&output=csv';
 let products = [];
 let currentFiltered = [];
 let renderLimit = 100;
+let productsMap = {}; // 加速查找用
+
+// 外掛精靈專用變數
+let localInventory = {}; 
+let currentSpecDrop = [];
+let currentSpecRise = [];
+let currentSpecDateStr = '';
+
+document.getElementById('wizardDate').valueAsDate = new Date();
 
 async function fetchProducts() {
     try {
@@ -98,11 +162,16 @@ async function fetchProducts() {
         
         products = parseCSVOptimized(lines, headers);
         
+        // 建立快取字典給換檔精靈使用
+        products.forEach(p => {
+            const sku = getValFromObj(p, 'SKU');
+            if (sku) productsMap[sku] = p;
+        });
+        
         document.getElementById('loader').style.display = 'none';
         document.getElementById('searchInput').disabled = false;
         filterAndRender();
     } catch (error) {
-        console.error('Fetch error:', error);
         document.getElementById('loader').innerText = '資料載入失敗，請確認 Google 試算表網址。';
     }
 }
@@ -135,15 +204,226 @@ function parseCSVLine(line) {
     return values.map(v => v.replace(/^["']|["']$/g, ''));
 }
 
+function getValFromObj(obj, key) {
+    return obj[key] || obj[` ${key}`] || obj[`${key} `] || obj[Object.keys(obj).find(k => k.trim() === key)] || '';
+}
+
+// ======== 價格與檔期解析邏輯 (精靈計算需要) ========
+function getPriceAndPeriodOnDate(promoPriceStr, promoPeriodStr, targetDateObj) {
+    if (!promoPriceStr || !promoPeriodStr) return { price: '', period: '' };
+    const prices = promoPriceStr.split('|').map(s => s.trim());
+    const periods = promoPeriodStr.split('|').map(s => s.trim());
+    
+    let bestPromo = null;
+    let minDuration = Infinity;
+    
+    for (let i = 0; i < periods.length; i++) {
+        const parts = periods[i].split('~');
+        const priceMatch = prices[i] !== undefined ? prices[i] : prices[0];
+        
+        if (parts.length === 2) {
+            const startStr = parts[0].trim().replace(/-/g, '/');
+            const endStr = parts[1].trim().replace(/-/g, '/');
+            const start = new Date(startStr + " 00:00:00");
+            const end = new Date(endStr + " 23:59:59");
+            
+            if (targetDateObj >= start && targetDateObj <= end) {
+                const duration = end - start;
+                if (duration < minDuration) {
+                    minDuration = duration;
+                    bestPromo = { price: priceMatch, period: periods[i] };
+                }
+            }
+        } else {
+            if (Infinity <= minDuration) {
+                bestPromo = { price: priceMatch, period: periods[i] };
+            }
+        }
+    }
+    return bestPromo || { price: '', period: '' };
+}
+
+function getRawPriceOnDate(p, targetDateObj) {
+    const origPriceStr = getValFromObj(p, '一般售價') || '0';
+    const origPrice = parseInt(origPriceStr.replace(/,/g, '')) || 0;
+    
+    let rawPromoPrice = getValFromObj(p, '促銷售價');
+    if(rawPromoPrice === '#N/A' || rawPromoPrice === '0') rawPromoPrice = '';
+    let rawPromoPeriod = getValFromObj(p, '促銷期間');
+    if(rawPromoPeriod === '#N/A') rawPromoPeriod = '';
+    
+    const promoData = getPriceAndPeriodOnDate(rawPromoPrice, rawPromoPeriod, targetDateObj);
+    if (promoData.price !== '') {
+        return parseInt(promoData.price.replace(/,/g, '')) || origPrice;
+    }
+    return origPrice;
+}
+
+// ======== 報表上傳與解析 (SheetJS) ========
+document.getElementById('inventoryFile').addEventListener('change', function(e) {
+    const file = e.target.files[0];
+    if(!file) return;
+    
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        try {
+            const data = new Uint8Array(e.target.result);
+            const workbook = XLSX.read(data, {type: 'array'});
+            const firstSheetName = workbook.SheetNames[0];
+            const worksheet = workbook.Sheets[firstSheetName];
+            const json = XLSX.utils.sheet_to_json(worksheet, {header: 1});
+
+            localInventory = {};
+            let headerRowIdx = -1;
+            let skuCol = -1, stockCol = -1, showCol = -1;
+
+            // 尋找表頭 (容錯掃描前20行)
+            for(let i=0; i < Math.min(20, json.length); i++) {
+                const row = json[i];
+                if(!row) continue;
+                for(let j=0; j<row.length; j++) {
+                    if(typeof row[j] === 'string') {
+                        const val = row[j].replace(/\s/g, ''); // 去除空白與換行
+                        if(val.includes('SKU')) skuCol = j;
+                        else if(val === '一般') stockCol = j;
+                        else if(val === '展示品') showCol = j;
+                    }
+                }
+                if(skuCol !== -1 && stockCol !== -1 && showCol !== -1) {
+                    headerRowIdx = i;
+                    break;
+                }
+            }
+
+            if(headerRowIdx === -1 || skuCol === -1) {
+                alert("解析失敗 ❌\n找不到 SKU、一般 或 展示品 欄位。請確認這是系統匯出的【大店庫存報表】！");
+                document.getElementById('inventoryFile').value = '';
+                return;
+            }
+
+            // 寫入記憶體
+            let count = 0;
+            for(let i=headerRowIdx+1; i<json.length; i++) {
+                const row = json[i];
+                if(!row || !row[skuCol]) continue;
+                const sku = String(row[skuCol]).trim().padStart(9, '0');
+                const stock = parseInt(row[stockCol]) || 0;
+                const show = parseInt(row[showCol]) || 0;
+                
+                if (stock > 0 || show > 0) {
+                    localInventory[sku] = { stock, show };
+                    count++;
+                }
+            }
+            
+            document.getElementById('uploadBtnText').innerText = `✅ 已載入 (${file.name})`;
+            document.getElementById('uploadBtnText').style.background = '#27ae60';
+            document.getElementById('uploadStatus').style.display = 'block';
+            document.getElementById('uploadStatus').innerText = `解析成功！共抓取到 ${count} 筆門市有貨的 SKU。`;
+            
+        } catch (error) {
+            alert("讀取檔案發生錯誤，請確認檔案格式是否正確。");
+            console.error(error);
+        }
+    };
+    reader.readAsArrayBuffer(file);
+});
+
+// ======== 執行本地端換檔比對 ========
+function runLocalWizard() {
+    if(Object.keys(localInventory).length === 0) {
+        return alert('請先上傳你們店的庫存報表(Excel)！沒給庫存我怎麼算？');
+    }
+    
+    const dateInput = document.getElementById('wizardDate').value;
+    if(!dateInput) return alert('請選擇一個要查詢的檔期日期！');
+
+    const chkStock = document.getElementById('wizChkStock').checked;
+    const chkShow = document.getElementById('wizChkShow').checked;
+    
+    if (!chkStock && !chkShow) return alert('你把庫存跟展示都取消勾選，那要印給鬼看嗎？至少勾一個！');
+
+    const safeDateStr = dateInput.replace(/-/g, '/'); 
+    const targetDate = new Date(safeDateStr + " 12:00:00");
+    const prevDate = new Date(targetDate.getTime() - 24 * 60 * 60 * 1000);
+
+    currentSpecDrop = [];
+    currentSpecRise = [];
+    currentSpecDateStr = dateInput.replace(/-/g, '');
+
+    // 交叉比對核心
+    for (const sku in localInventory) {
+        const inv = localInventory[sku];
+        let targetQty = 0;
+        
+        if(chkStock) targetQty += inv.stock;
+        if(chkShow) targetQty += inv.show;
+
+        if (targetQty > 0 && productsMap[sku]) {
+            const p = productsMap[sku];
+            const priceTarget = getRawPriceOnDate(p, targetDate);
+            const pricePrev = getRawPriceOnDate(p, prevDate);
+
+            if (priceTarget < pricePrev) {
+                // 降價 (進入特價)
+                for(let i=0; i<targetQty; i++) currentSpecDrop.push(sku);
+            } else if (priceTarget > pricePrev) {
+                // 漲價 (恢復原價)
+                for(let i=0; i<targetQty; i++) currentSpecRise.push(sku);
+            }
+        }
+    }
+
+    document.getElementById('btnDropSpec').innerText = `📥 匯出【進入特價】 (${currentSpecDrop.length} 張)`;
+    document.getElementById('btnRiseSpec').innerText = `📥 匯出【恢復原價】 (${currentSpecRise.length} 張)`;
+    document.getElementById('wizardSpecificResult').style.display = 'block';
+}
+
+function doExportExcel(skuList, typeName, dateStr) {
+    if (!skuList || skuList.length === 0) return alert('這個清單是空的，沒有牌子要印！');
+    
+    let htmlTable = `
+        <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+        <head>
+            <meta charset="utf-8">
+            <style> td { mso-number-format:"\\@"; } </style>
+        </head>
+        <body>
+            <table><tr><th>SKU</th></tr>
+    `;
+    
+    skuList.forEach(sku => { htmlTable += `<tr><td>${sku}</td></tr>`; });
+    htmlTable += `</table></body></html>`;
+    
+    const blob = new Blob([htmlTable], {type: "application/vnd.ms-excel;charset=utf-8;"});
+    const link = document.createElement("a");
+    const url = URL.createObjectURL(blob);
+    link.setAttribute("href", url);
+    link.setAttribute("download", `換檔POP_${dateStr}_${typeName}.xls`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+}
+
+function exportSpecific(type) {
+    if (type === 'drop') doExportExcel(currentSpecDrop, '進入特價', currentSpecDateStr);
+    else doExportExcel(currentSpecRise, '恢復原價', currentSpecDateStr);
+}
+
+function openWizard() {
+    document.getElementById('wizardModal').style.display='flex';
+}
+
+// ======== 原有過濾與渲染邏輯 ========
 function filterAndRender() {
     const query = document.getElementById('searchInput').value.toLowerCase().trim();
     const onlyYangmei = document.getElementById('stockFilter').checked;
     
     currentFiltered = products.filter(p => {
-        const getVal = (key) => p[key] || p[` ${key}`] || p[`${key} `] || p[Object.keys(p).find(k => k.trim() === key)] || '';
-        const sku = getVal('SKU').toLowerCase();
-        const name = getVal('商品名稱').toLowerCase();
-        const ymStock = parseInt(getVal('楊梅庫存') || '0');
+        const sku = getValFromObj(p, 'SKU').toLowerCase();
+        const name = getValFromObj(p, '商品名稱').toLowerCase();
+        const ymStock = parseInt(getValFromObj(p, '楊梅庫存') || '0');
         
         const matchText = sku.includes(query) || name.includes(query);
         const matchYangmei = onlyYangmei ? (ymStock > 0) : true;
@@ -170,13 +450,12 @@ function renderProducts() {
     }
     
     listToRender.forEach(p => {
-        const getVal = (key) => p[key] || p[` ${key}`] || p[`${key} `] || p[Object.keys(p).find(k => k.trim() === key)] || '';
-        const sku = getVal('SKU') || 'N/A';
-        const name = getVal('商品名稱') || '無品名';
-        const category = getVal('商品分類') || '無分類';
-        const ymStock = parseInt(getVal('楊梅庫存') || '0');
+        const sku = getValFromObj(p, 'SKU') || 'N/A';
+        const name = getValFromObj(p, '商品名稱') || '無品名';
+        const category = getValFromObj(p, '商品分類') || '無分類';
+        const ymStock = parseInt(getValFromObj(p, '楊梅庫存') || '0');
 
-        const statusRaw = getVal('商品狀態') || '';
+        const statusRaw = getValFromObj(p, '商品狀態') || '';
         let statusHtml = '';
         if (statusRaw.toUpperCase() === 'D') {
             statusHtml = `<span style="color: #c0392b; font-weight: bold; background: #fadbd8; padding: 2px 6px; border-radius: 4px;">⚠️ 不續訂商品 (D)</span>`;
@@ -239,6 +518,7 @@ document.getElementById('searchInput').addEventListener('input', filterAndRender
 document.getElementById('stockFilter').addEventListener('change', filterAndRender);
 fetchProducts();
 
+// ======== QR Code 掃描器 ========
 const html5QrCode = new Html5Qrcode("hiddenReader");
 document.getElementById('cameraBtn').addEventListener('click', () => { document.getElementById('qrInput').click(); });
 document.getElementById('qrInput').addEventListener('change', event => {
