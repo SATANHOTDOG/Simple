@@ -59,6 +59,7 @@ h1 { font-size: 1.5rem; color: var(--primary-color); margin-bottom: 5px; }
 .file-upload-wrapper { position: relative; overflow: hidden; display: inline-block; width: 100%; margin-bottom: 10px; }
 .file-upload-wrapper input[type=file] { font-size: 100px; position: absolute; left: 0; top: 0; opacity: 0; cursor: pointer; }
 .btn-upload { background: #f39c12; color: white; padding: 12px; border-radius: 8px; font-weight: bold; width: 100%; border: none; display: flex; justify-content: center; align-items: center; gap: 8px; }
+.wiz-date-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; padding: 8px 10px; border-radius: 6px; font-size: 0.9rem; }
 </style>
 
 <!-- 引入 QR Code 與 神級 Excel 解析套件 SheetJS -->
@@ -111,19 +112,31 @@ h1 { font-size: 1.5rem; color: var(--primary-color); margin-bottom: 5px; }
 
         <!-- 步驟 2：篩選條件 -->
         <div class="wizard-box">
-            <h4 style="color: #2980b9;">Step 2. 設定印牌與日期條件</h4>
+            <h4 style="color: #2980b9;">Step 2. 查證與匯出印牌清單</h4>
             <div style="display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 15px;">
                 <label class="checkbox-container"><input type="checkbox" id="wizChkStock" checked> 包含庫存量 (一般)</label>
                 <label class="checkbox-container"><input type="checkbox" id="wizChkShow" checked> 包含展示品</label>
             </div>
-            <input type="date" id="wizardDate" style="width: 100%; padding: 10px; margin-bottom: 10px; border: 1px solid #bdc3c7; border-radius: 6px; font-family: inherit;">
-            <button class="btn" style="width: 100%; background: #2c3e50; color: white;" onclick="runLocalWizard()">🔍 執行比對，找出換檔清單</button>
+
+            <!-- 新增：近五日自動查證區塊 -->
+            <div style="margin-bottom: 15px; border-bottom: 1px dashed #bdc3c7; padding-bottom: 15px;">
+                <button class="btn" style="width: 100%; background: #e67e22; color: white; margin-bottom: 10px;" onclick="scanLocal5Days()">📅 查證近五日是否有變價</button>
+                <div id="wizard5DaysContainer" style="font-size: 0.9rem; display: none; margin-top: 10px;"></div>
+            </div>
+
+            <!-- 特定日期查詢 -->
+            <div style="margin-top: 15px;">
+                <h5 style="color: #34495e; margin-bottom: 8px;">或查詢特定單一日期：</h5>
+                <input type="date" id="wizardDate" style="width: 100%; padding: 10px; margin-bottom: 10px; border: 1px solid #bdc3c7; border-radius: 6px; font-family: inherit;">
+                <button class="btn" style="width: 100%; background: #2c3e50; color: white;" onclick="runLocalWizard()">🔍 執行單日比對</button>
+            </div>
             
             <div id="wizardSpecificResult" style="display: none; margin-top: 15px; border-top: 1px dashed #bdc3c7; padding-top: 15px;">
-                <button class="btn" style="width: 100%; background: #e74c3c; color: white; margin-bottom: 8px;" id="btnDropSpec" onclick="exportSpecific('drop')">📥 匯出【進入特價】 (0)</button>
-                <button class="btn" style="width: 100%; background: #27ae60; color: white;" id="btnRiseSpec" onclick="exportSpecific('rise')">📥 匯出【恢復原價】 (0)</button>
-                <p style="font-size: 0.75rem; color: #95a5a6; margin-top: 8px;">匯出為 Excel，雙擊若跳格式警告請按「是」。</p>
+                <button class="btn" style="width: 100%; background: #e74c3c; color: white; margin-bottom: 8px;" id="btnDropSpec" onclick="exportSpecific('drop')">📥 匯出單日【進入特價】</button>
+                <button class="btn" style="width: 100%; background: #27ae60; color: white;" id="btnRiseSpec" onclick="exportSpecific('rise')">📥 匯出單日【恢復原價】</button>
             </div>
+            
+            <p style="font-size: 0.75rem; color: #95a5a6; margin-top: 15px; text-align: center;">匯出為 Excel，雙擊若跳格式警告請大膽按「是」。</p>
         </div>
 
         <button class="btn btn-secondary" style="width: 100%;" onclick="document.getElementById('wizardModal').style.display='none'">關閉視窗</button>
@@ -208,7 +221,7 @@ function getValFromObj(obj, key) {
     return obj[key] || obj[` ${key}`] || obj[`${key} `] || obj[Object.keys(obj).find(k => k.trim() === key)] || '';
 }
 
-// ======== 價格與檔期解析邏輯 (精靈計算需要) ========
+// ======== 價格與檔期解析邏輯 ========
 function getPriceAndPeriodOnDate(promoPriceStr, promoPeriodStr, targetDateObj) {
     if (!promoPriceStr || !promoPeriodStr) return { price: '', period: '' };
     const prices = promoPriceStr.split('|').map(s => s.trim());
@@ -283,7 +296,7 @@ document.getElementById('inventoryFile').addEventListener('change', function(e) 
                 if(!row) continue;
                 for(let j=0; j<row.length; j++) {
                     if(typeof row[j] === 'string') {
-                        const val = row[j].replace(/\s/g, ''); // 去除空白與換行
+                        const val = row[j].replace(/\s/g, ''); 
                         if(val.includes('SKU')) skuCol = j;
                         else if(val === '一般') stockCol = j;
                         else if(val === '展示品') showCol = j;
@@ -301,7 +314,6 @@ document.getElementById('inventoryFile').addEventListener('change', function(e) 
                 return;
             }
 
-            // 寫入記憶體
             let count = 0;
             for(let i=headerRowIdx+1; i<json.length; i++) {
                 const row = json[i];
@@ -329,7 +341,90 @@ document.getElementById('inventoryFile').addEventListener('change', function(e) 
     reader.readAsArrayBuffer(file);
 });
 
-// ======== 執行本地端換檔比對 ========
+// ======== 自動掃描近 5 日變價 ========
+function scanLocal5Days() {
+    if(Object.keys(localInventory).length === 0) {
+        return alert('請先上傳你們店的庫存報表(Excel)！沒給庫存我怎麼算？');
+    }
+    const chkStock = document.getElementById('wizChkStock').checked;
+    const chkShow = document.getElementById('wizChkShow').checked;
+
+    if (!chkStock && !chkShow) return alert('請至少勾選「包含庫存量」或「包含展示品」！');
+
+    const container = document.getElementById('wizard5DaysContainer');
+    container.style.display = 'block';
+    container.innerHTML = '<div style="text-align:center; color:#e67e22; padding: 10px; font-weight: bold;">魔法陣啟動，掃描近 5 日變價中...</div>';
+
+    setTimeout(() => {
+        const today = new Date();
+        today.setHours(12, 0, 0, 0);
+
+        let foundAny = false;
+        let html = '';
+
+        // 從 5 天前掃描到今天 (包含今天)
+        for(let i = -5; i <= 0; i++) {
+            const tDate = new Date(today.getTime() + i * 24 * 60 * 60 * 1000);
+            const pDate = new Date(tDate.getTime() - 24 * 60 * 60 * 1000);
+
+            let dropList = [];
+            let riseList = [];
+
+            for (const sku in localInventory) {
+                const inv = localInventory[sku];
+                let targetQty = 0;
+
+                if(chkStock) targetQty += inv.stock;
+                if(chkShow) targetQty += inv.show;
+
+                if (targetQty > 0 && productsMap[sku]) {
+                    const p = productsMap[sku];
+                    const priceTarget = getRawPriceOnDate(p, tDate);
+                    const pricePrev = getRawPriceOnDate(p, pDate);
+
+                    if (priceTarget < pricePrev) {
+                        for(let k=0; k<targetQty; k++) dropList.push(sku);
+                    } else if (priceTarget > pricePrev) {
+                        for(let k=0; k<targetQty; k++) riseList.push(sku);
+                    }
+                }
+            }
+
+            const month = String(tDate.getMonth()+1).padStart(2, '0');
+            const day = String(tDate.getDate()).padStart(2, '0');
+            const dateStr = `${tDate.getFullYear()}${month}${day}`;
+            let displayDate = `${month}/${day}`;
+            if (i === 0) displayDate = "今天";
+            if (i === -1) displayDate = "昨天";
+
+            if (dropList.length > 0) {
+                foundAny = true;
+                window[`wizData_drop_${dateStr}`] = dropList;
+                html += `
+                <div class="wiz-date-row" style="background: #fadbd8;">
+                    <span style="color: #c0392b; font-weight: bold;">${displayDate} 進入特價 (${dropList.length} 張)</span>
+                    <button class="btn" style="flex: 0 0 60px; background: #e74c3c; color: white; padding: 4px;" onclick="doExportExcel(window['wizData_drop_${dateStr}'], '進入特價', '${dateStr}')">匯出</button>
+                </div>`;
+            }
+            if (riseList.length > 0) {
+                foundAny = true;
+                window[`wizData_rise_${dateStr}`] = riseList;
+                html += `
+                <div class="wiz-date-row" style="background: #d5f5e3;">
+                    <span style="color: #27ae60; font-weight: bold;">${displayDate} 恢復原價 (${riseList.length} 張)</span>
+                    <button class="btn" style="flex: 0 0 60px; background: #27ae60; color: white; padding: 4px;" onclick="doExportExcel(window['wizData_rise_${dateStr}'], '恢復原價', '${dateStr}')">匯出</button>
+                </div>`;
+            }
+        }
+
+        if (!foundAny) {
+            html = '<div style="text-align:center; color:#27ae60; font-weight:bold; padding: 10px;">🎉 近 5 天你們店內完全沒有變價商品！</div>';
+        }
+        container.innerHTML = html;
+    }, 50);
+}
+
+// ======== 執行本地端特定單日換檔比對 ========
 function runLocalWizard() {
     if(Object.keys(localInventory).length === 0) {
         return alert('請先上傳你們店的庫存報表(Excel)！沒給庫存我怎麼算？');
@@ -351,7 +446,6 @@ function runLocalWizard() {
     currentSpecRise = [];
     currentSpecDateStr = dateInput.replace(/-/g, '');
 
-    // 交叉比對核心
     for (const sku in localInventory) {
         const inv = localInventory[sku];
         let targetQty = 0;
@@ -365,10 +459,8 @@ function runLocalWizard() {
             const pricePrev = getRawPriceOnDate(p, prevDate);
 
             if (priceTarget < pricePrev) {
-                // 降價 (進入特價)
                 for(let i=0; i<targetQty; i++) currentSpecDrop.push(sku);
             } else if (priceTarget > pricePrev) {
-                // 漲價 (恢復原價)
                 for(let i=0; i<targetQty; i++) currentSpecRise.push(sku);
             }
         }
