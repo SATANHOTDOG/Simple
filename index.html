@@ -18,7 +18,7 @@
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; background-color: var(--bg-color); color: var(--text-main); padding: 15px; max-width: 1200px; margin: 0 auto; }
 header { text-align: center; margin-bottom: 20px; padding: 15px; background: var(--card-bg); border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); }
-h1 { font-size: 1.5rem; color: var(--primary-color); margin-bottom: 5px; }
+h1 { font-size: 1.5rem; color: var(--primary-color); margin-bottom: 5px; cursor: pointer; user-select: none; -webkit-user-select: none; touch-action: manipulation; }
 .subtitle { font-size: 0.85rem; color: var(--text-muted); }
 .search-container { position: sticky; top: 10px; z-index: 100; margin-bottom: 20px; background: var(--bg-color); padding-bottom: 10px; }
 .search-box { width: 100%; padding: 14px 20px; font-size: 1.1rem; border: 2px solid var(--primary-color); border-radius: 12px; outline: none; box-shadow: 0 4px 12px rgba(0,0,0,0.1); transition: all 0.2s ease; background: #ffffff; }
@@ -59,6 +59,13 @@ h1 { font-size: 1.5rem; color: var(--primary-color); margin-bottom: 5px; }
 .file-upload-wrapper { position: relative; overflow: hidden; display: inline-block; width: 100%; margin-bottom: 10px; }
 .file-upload-wrapper input[type=file] { font-size: 100px; position: absolute; left: 0; top: 0; opacity: 0; cursor: pointer; }
 .btn-upload { background: #f39c12; color: white; padding: 12px; border-radius: 8px; font-weight: bold; width: 100%; border: none; display: flex; justify-content: center; align-items: center; gap: 8px; }
+
+/* 流量統計彈窗卡片樣式 */
+.stats-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 18px 0; }
+.stat-item { background: #f8f9fa; border: 1px solid #e9ecef; border-radius: 10px; padding: 12px 6px; }
+.stat-label { font-size: 0.78rem; color: #7f8c8d; font-weight: bold; margin-bottom: 6px; }
+.stat-num { font-size: 1.45rem; font-weight: 900; color: #2c3e50; }
+.stat-num.highlight { color: #e74c3c; }
 </style>
 
 <!-- 引入 QR Code 與 神級 Excel 解析套件 SheetJS -->
@@ -67,7 +74,7 @@ h1 { font-size: 1.5rem; color: var(--primary-color); margin-bottom: 5px; }
 </head>
 <body>
 <header>
-<h1>家具商品大倉查貨圖鑑</h1>
+<h1 id="pageTitle">家具商品大倉查貨圖鑑</h1>
 <div class="subtitle">全台門市通用 快速檢索工具</div>
 </header>
 <div class="search-container">
@@ -89,6 +96,30 @@ h1 { font-size: 1.5rem; color: var(--primary-color); margin-bottom: 5px; }
 </div>
 <div id="loader" class="loader">正在極速讀取試算表資料...</div>
 <div id="gridContainer" class="grid-container"></div>
+
+<!-- 隱藏彩蛋：流量統計 Modal -->
+<div id="statsModal" class="modal" onclick="document.getElementById('statsModal').style.display='none'">
+    <div class="modal-content" onclick="event.stopPropagation()">
+        <h3 style="color: #2c3e50; font-size: 1.25rem; margin-bottom: 4px;">📊 版本 C 訪客統計</h3>
+        <div id="statsStatusText" style="font-size: 0.8rem; color: #7f8c8d;">正在與試算表同步數據...</div>
+        <div class="stats-grid">
+            <div class="stat-item">
+                <div class="stat-label">累積人數</div>
+                <div class="stat-num" id="statTotal">-</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-label">當月人數</div>
+                <div class="stat-num highlight" id="statMonth">-</div>
+            </div>
+            <div class="stat-item">
+                <div class="stat-label">當日人數</div>
+                <div class="stat-num" id="statDay">-</div>
+            </div>
+        </div>
+        <div style="font-size: 0.75rem; color: #95a5a6; margin-bottom: 15px;">※ 同裝置每日僅計入 1 次不重複人頭</div>
+        <button class="btn btn-primary" style="width: 100%;" onclick="document.getElementById('statsModal').style.display='none'">關閉</button>
+    </div>
+</div>
 
 <!-- 外掛版：換檔精靈 Modal -->
 <div id="wizardModal" class="modal" onclick="document.getElementById('wizardModal').style.display='none'">
@@ -132,6 +163,8 @@ h1 { font-size: 1.5rem; color: var(--primary-color); margin-bottom: 5px; }
 
 <script>
 const GOOGLE_SHEET_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTC18jsseZH3TerLqZMzzkJc1uPjh2IVTktcs4DxiuEmpA_NRAnzKrgzZbV43FQtN8b7-vMlvv1BFGF/pub?gid=0&single=true&output=csv';
+const STATS_GAS_URL = 'https://script.google.com/macros/s/AKfycbxYlSNUXb_Lu2mslqN6TAwYUeSVyIfOpO8akA_kpsIbXgA3AAMe6iOc4M__o8XeA_nrag/exec';
+
 let products = [];
 let currentFiltered = [];
 let renderLimit = 100;
@@ -145,6 +178,104 @@ let currentSpecDateStr = '';
 
 document.getElementById('wizardDate').valueAsDate = new Date();
 
+// ==========================================
+// 訪客計數器與連點 3 下彩蛋邏輯
+// ==========================================
+let cachedStats = null;
+let isHitRequesting = false;
+
+function getTaiwanTodayStr() {
+    return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Taipei' }); // 產生 YYYY-MM-DD
+}
+
+function trackVisitor() {
+    if (!STATS_GAS_URL || STATS_GAS_URL.includes('請在這裡貼上')) return;
+
+    const todayStr = getTaiwanTodayStr();
+    const storageKey = 'hola_v3_last_visit_date';
+    const lastVisit = localStorage.getItem(storageKey);
+
+    // 同一支手機在同一天內只發送 1 次計數請求
+    if (lastVisit !== todayStr) {
+        isHitRequesting = true;
+        fetch(`${STATS_GAS_URL}?action=hit`)
+            .then(res => res.json())
+            .then(data => {
+                if (data.status === 'ok') {
+                    localStorage.setItem(storageKey, todayStr);
+                    cachedStats = data;
+                    updateStatsModalUI(data, '已更新最新數據');
+                }
+            })
+            .catch(() => {})
+            .finally(() => { isHitRequesting = false; });
+    }
+}
+
+function updateStatsModalUI(data, statusMsg) {
+    document.getElementById('statTotal').innerText = data.total;
+    document.getElementById('statMonth').innerText = data.month;
+    document.getElementById('statDay').innerText = data.day;
+    document.getElementById('statsStatusText').innerText = statusMsg;
+}
+
+function openStatsModal() {
+    document.getElementById('statsModal').style.display = 'flex';
+
+    if (!STATS_GAS_URL || STATS_GAS_URL.includes('請在這裡貼上')) {
+        document.getElementById('statsStatusText').innerText = '⚠️ 尚未填入 GAS 網址';
+        return;
+    }
+
+    if (cachedStats) {
+        updateStatsModalUI(cachedStats, '即時數據');
+        return;
+    }
+
+    document.getElementById('statsStatusText').innerText = '正在與試算表同步數據...';
+    if (!isHitRequesting) {
+        fetch(`${STATS_GAS_URL}?action=get`)
+            .then(res => res.json())
+            .then(data => {
+                if (data.status === 'ok') {
+                    cachedStats = data;
+                    updateStatsModalUI(data, '即時數據');
+                } else {
+                    document.getElementById('statsStatusText').innerText = '讀取失敗';
+                }
+            })
+            .catch(() => {
+                document.getElementById('statsStatusText').innerText = '連線異常，請稍後再試';
+            });
+    }
+}
+
+// 監聽大標題連續點擊 3 下 (0.8 秒內完成)
+(function initTitleTripleTap() {
+    const titleEl = document.getElementById('pageTitle');
+    let tapCount = 0;
+    let tapTimer = null;
+
+    titleEl.addEventListener('click', () => {
+        tapCount++;
+        clearTimeout(tapTimer);
+
+        if (tapCount >= 3) {
+            tapCount = 0;
+            openStatsModal();
+        } else {
+            tapTimer = setTimeout(() => {
+                tapCount = 0;
+            }, 800);
+        }
+    });
+})();
+
+trackVisitor();
+
+// ==========================================
+// 原有商品載入與查詢邏輯
+// ==========================================
 async function fetchProducts() {
     try {
         const response = await fetch(GOOGLE_SHEET_CSV_URL);
@@ -162,7 +293,6 @@ async function fetchProducts() {
         
         products = parseCSVOptimized(lines, headers);
         
-        // 建立快取字典給換檔精靈使用
         products.forEach(p => {
             const sku = getValFromObj(p, 'SKU');
             if (sku) productsMap[sku] = p;
@@ -277,13 +407,12 @@ document.getElementById('inventoryFile').addEventListener('change', function(e) 
             let headerRowIdx = -1;
             let skuCol = -1, stockCol = -1, showCol = -1;
 
-            // 尋找表頭 (容錯掃描前20行)
             for(let i=0; i < Math.min(20, json.length); i++) {
                 const row = json[i];
                 if(!row) continue;
                 for(let j=0; j<row.length; j++) {
                     if(typeof row[j] === 'string') {
-                        const val = row[j].replace(/\s/g, ''); // 去除空白與換行
+                        const val = row[j].replace(/\s/g, '');
                         if(val.includes('SKU')) skuCol = j;
                         else if(val === '一般') stockCol = j;
                         else if(val === '展示品') showCol = j;
@@ -301,7 +430,6 @@ document.getElementById('inventoryFile').addEventListener('change', function(e) 
                 return;
             }
 
-            // 寫入記憶體
             let count = 0;
             for(let i=headerRowIdx+1; i<json.length; i++) {
                 const row = json[i];
@@ -351,7 +479,6 @@ function runLocalWizard() {
     currentSpecRise = [];
     currentSpecDateStr = dateInput.replace(/-/g, '');
 
-    // 交叉比對核心
     for (const sku in localInventory) {
         const inv = localInventory[sku];
         let targetQty = 0;
@@ -365,10 +492,8 @@ function runLocalWizard() {
             const pricePrev = getRawPriceOnDate(p, prevDate);
 
             if (priceTarget < pricePrev) {
-                // 降價 (進入特價)
                 for(let i=0; i<targetQty; i++) currentSpecDrop.push(sku);
             } else if (priceTarget > pricePrev) {
-                // 漲價 (恢復原價)
                 for(let i=0; i<targetQty; i++) currentSpecRise.push(sku);
             }
         }
